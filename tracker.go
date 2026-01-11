@@ -124,8 +124,11 @@ func (m *model) updatePointer() {
 func updateTable(id, col int, newVal string, db *sql.DB) {
 		
 	cols := []string {"class", "name", "duedate", "priority", "estimatedtime", "actualtime", "location", "id"}
-	query := fmt.Sprintf("UPDATE assignments SET %s WHERE id = %d;", cols[col], id)
-    db.Query(query)
+	query := fmt.Sprintf("UPDATE assignments SET %s = '%s' WHERE id = %d;", cols[col], newVal, id)
+ 	_, err := db.Exec(query)
+  	if err != nil {
+      log.Printf("Update failed: %v", err)
+  	}
 }
 
 func (m *model) addRow() {
