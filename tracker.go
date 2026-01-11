@@ -1,0 +1,240 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"log"
+	"sort"
+	"time"
+
+	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	_ "github.com/lib/pq"
+)
+
+var (
+    
+   
+    // Input box style
+    inputBoxStyle = lipgloss.NewStyle().
+        Border(lipgloss.RoundedBorder()).
+        BorderForeground(lipgloss.Color("#FF79C6")).
+        Padding(1, 2).
+        MarginTop(1)
+    
+)
+type model struct {
+	textInput textinput.Model
+	table table.Model
+	selectedCol int
+	data []table.Row
+	inputLabel string
+	db *sql.DB
+}
+
+func initialModel(db *sql.DB) *model {
+	ti := textinput.New()
+
+	ti.Placeholder = "type here"
+	ti.CharLimit = 20
+	ti.Width = 30
+	ti.Focus()
+    columns := []table.Column{
+        {Title: "Class", Width: 20},
+        {Title: "Name", Width: 10},
+        {Title: "Due Date", Width: 15},
+        {Title: "Priority", Width: 15},
+        {Title: "Location", Width: 15},
+        {Title: "Estimated Time", Width: 15},
+        {Title: "Real Time", Width: 15},
+    }
+
+    fmt.Println("Querying database...")
+    sqlRows, err := db.Query("SELECT * FROM assignments ORDER BY duedate")
+    fmt.Println("Query completed!")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+	var tableRows []table.Row
+
+	fmt.Println("Scanning rows...")
+	for sqlRows.Next() {
+      var class, name, duedate, priority, location, estimatedTime, realTime string
+
+      err := sqlRows.Scan(&class, &name, &duedate, &priority, &location, &estimatedTime, &realTime)
+      if err != nil {
+          log.Fatal(err)
+      }
+
+      tableRows = append(tableRows, table.Row{class, name, duedate, priority, location, estimatedTime, realTime})
+	  fmt.Printf("Scanned row: %v\n", tableRows[len(tableRows)-1])
+	}
+
+	fmt.Printf("Total rows scanned: %d\n", len(tableRows))
+	if err = sqlRows.Err(); err != nil {
+      log.Fatal(err)
+  	}
+	
+
+    fmt.Println("Creating table...")
+    t := table.New(
+        table.WithColumns(columns),
+        table.WithRows(tableRows),
+        table.WithHeight(29),
+    )
+    fmt.Println("Returning model...")
+    return &model{
+		textInput: ti,
+		table: t,
+		selectedCol: 0,
+		data: tableRows,
+		inputLabel: "",
+    }
+}
+
+func (m *model) Init() tea.Cmd {
+    return textinput.Blink
+}
+
+func (m *model) updatePointer() {
+	displayRows := make([]table.Row, len(m.data))
+	for i, row := range(m.data){
+		displayRows[i] = make([]string, len(row))
+		for j, cell := range(row){
+			if i == m.table.Cursor() && j == m.selectedCol{
+				displayRows[i][j] = ">" + cell
+			} else{
+				displayRows[i][j] = cell
+			}
+		}
+	}
+	m.table.SetRows(displayRows)
+}
+
+func (m *model) addRow() {
+
+	newRow := table.Row{"class", "name", "due date", "low", "location", "est", "actual"}
+	m.data = append(m.data, newRow)
+	m.table.SetRows(m.data)
+
+	
+}
+func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        switch msg.String() {
+		case "enter":
+			if m.textInput.Focused(){
+				m.data[m.table.Cursor()][m.selectedCol] = m.textInput.Value()
+				m.textInput.SetValue("")
+				m.textInput.Blur()
+				m.table.Focus()
+			}
+		case "ctrl+c":
+            return m, tea.Quit
+
+		case "ctrl+w":
+			if m.table.Focused() {
+				m.table.Blur()
+				m.textInput.Focus()
+			} else{
+				m.textInput.Blur()
+				m.table.Focus()
+			}
+		case "j":
+			if m.table.Focused() {
+				m.table.MoveDown(1)
+			}
+		case "k":
+			if m.table.Focused() {
+				m.table.MoveUp(1)
+			}
+
+		case "l":
+			if m.table.Focused() && m.selectedCol < len(m.table.Columns())-1 {
+				m.selectedCol++
+			}
+		case "h":
+			if m.table.Focused() && m.selectedCol > 0 {
+				m.selectedCol--
+			}
+		case "A":
+			if m.table.Focused(){
+				m.addRow()
+			}
+		}
+
+    }
+	if len(m.data) > 0 && m.table.Cursor() < len(m.data) {
+		m.textInput.Placeholder = m.data[m.table.Cursor()][m.selectedCol]
+	}
+	m.textInput, cmd = m.textInput.Update(msg)
+    return m, cmd 
+}
+func (m *model) sortByDueDate() {                                                                                                                                                  
+      sort.Slice(m.data, func(i, j int) bool {                                                                                                                                       
+          // Due Date is column index 2                                                                                                                                              
+          dateI := m.data[i][2]                                                                                                                                                      
+          dateJ := m.data[j][2]                                                                                                                                                      
+                                                                                                                                                                                     
+          // Parse dates (format: "01/15/2026")                                                                                                                                      
+          layout := "01/02/2006"                                                                                                                                                     
+          timeI, errI := time.Parse(layout, dateI)                                                                                                                                   
+          timeJ, errJ := time.Parse(layout, dateJ)                                                                                                                                   
+                                                                                                                                                                                     
+          // Handle empty or invalid dates - put them at the end                                                                                                                     
+          if errI != nil {                                                                                                                                                           
+              return false                                                                                                                                                           
+          }                                                                                                                                                                          
+          if errJ != nil {                                                                                                                                                           
+              return true                                                                                                                                                            
+          }                                                                                                                                                                          
+                                                                                                                                                                                     
+          // Sort earliest dates first                                                                                                                                               
+          return timeI.Before(timeJ)
+      })
+                                                                                                                                                                                     
+      // Update the table with sorted data                                                                                                                                           
+      m.updatePointer()                                                                                                                                                              
+  }
+func (m *model) View() string {
+	var inputSection string
+
+    textInput := m.textInput.View()
+    inputContent := fmt.Sprintf("%s", textInput)
+
+    inputSection = inputBoxStyle.Render(inputContent)
+	m.updatePointer()
+	tableStyled := m.table.View()
+
+    return lipgloss.JoinVertical(
+		lipgloss.Center,
+		tableStyled,
+		inputSection,
+	)
+}
+
+func main() {
+	connStr := "postgresql://postgres.mztcyklvjxbyokhdzehl:R1shi5538!!@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
+    if connStr == "" {
+        log.Fatal("SUPABASE_DB_URL environment variable not set")
+    }
+
+    db, err := sql.Open("postgres", connStr)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer db.Close()
+
+    err = db.Ping()
+    if err != nil {
+        log.Fatal("Cannot connect to Supabase:", err)
+    }
+
+    p := tea.NewProgram(initialModel(db), tea.WithAltScreen())
+    p.Run()
+}
