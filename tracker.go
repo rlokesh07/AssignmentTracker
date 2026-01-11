@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -14,17 +15,17 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// styles
 var (
-    
-   
     // Input box style
     inputBoxStyle = lipgloss.NewStyle().
         Border(lipgloss.RoundedBorder()).
         BorderForeground(lipgloss.Color("#FF79C6")).
         Padding(1, 2).
         MarginTop(1)
-    
 )
+
+// model structure 
 type model struct {
 	textInput textinput.Model
 	table table.Model
@@ -33,10 +34,38 @@ type model struct {
 	inputLabel string
 	db *sql.DB
 }
+func fetchData(db *sql.DB) []table.Row {
+    fmt.Println("Querying database...")
+	// pull rows from sql supabase db
+    sqlRows, err := db.Query("SELECT * FROM assignments ORDER BY duedate")
+    fmt.Println("Query completed!")
+    if err != nil {
+        log.Fatal(err)
+    }
+	var tableRows []table.Row
 
+	fmt.Println("Scanning rows...")
+	for sqlRows.Next() {
+      var class, name, duedate, priority, location, estimatedTime, realTime, id string
+
+      err := sqlRows.Scan(&class, &name, &duedate, &priority, &location, &estimatedTime, &realTime, &id)
+      if err != nil {
+          log.Fatal(err)
+      }
+
+      tableRows = append(tableRows, table.Row{class, name, duedate, priority, location, estimatedTime, realTime, id})
+	  fmt.Printf("Scanned row: %v\n", tableRows[len(tableRows)-1])
+	}
+
+	fmt.Printf("Total rows scanned: %d\n", len(tableRows))
+	if err = sqlRows.Err(); err != nil {
+      log.Fatal(err)
+  	}
+	return tableRows
+	
+}
 func initialModel(db *sql.DB) *model {
 	ti := textinput.New()
-
 	ti.Placeholder = "type here"
 	ti.CharLimit = 20
 	ti.Width = 30
@@ -49,49 +78,27 @@ func initialModel(db *sql.DB) *model {
         {Title: "Location", Width: 15},
         {Title: "Estimated Time", Width: 15},
         {Title: "Real Time", Width: 15},
+        {Title: "ID", Width: 10},
     }
 
-    fmt.Println("Querying database...")
-    sqlRows, err := db.Query("SELECT * FROM assignments ORDER BY duedate")
-    fmt.Println("Query completed!")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-	var tableRows []table.Row
-
-	fmt.Println("Scanning rows...")
-	for sqlRows.Next() {
-      var class, name, duedate, priority, location, estimatedTime, realTime string
-
-      err := sqlRows.Scan(&class, &name, &duedate, &priority, &location, &estimatedTime, &realTime)
-      if err != nil {
-          log.Fatal(err)
-      }
-
-      tableRows = append(tableRows, table.Row{class, name, duedate, priority, location, estimatedTime, realTime})
-	  fmt.Printf("Scanned row: %v\n", tableRows[len(tableRows)-1])
-	}
-
-	fmt.Printf("Total rows scanned: %d\n", len(tableRows))
-	if err = sqlRows.Err(); err != nil {
-      log.Fatal(err)
-  	}
-	
-
+	tableRows := fetchData(db)
     fmt.Println("Creating table...")
+
+	// scan rows in
     t := table.New(
         table.WithColumns(columns),
         table.WithRows(tableRows),
         table.WithHeight(29),
     )
-    fmt.Println("Returning model...")
+
+
     return &model{
 		textInput: ti,
 		table: t,
 		selectedCol: 0,
 		data: tableRows,
 		inputLabel: "",
+		db: db,
     }
 }
 
@@ -114,6 +121,13 @@ func (m *model) updatePointer() {
 	m.table.SetRows(displayRows)
 }
 
+func updateTable(id, col int, newVal string, db *sql.DB) {
+		
+	cols := []string {"class", "name", "duedate", "priority", "estimatedtime", "actualtime", "location", "id"}
+	query := fmt.Sprintf("UPDATE assignments SET %s WHERE id = %d;", cols[col], id)
+    db.Query(query)
+}
+
 func (m *model) addRow() {
 
 	newRow := table.Row{"class", "name", "due date", "low", "location", "est", "actual"}
@@ -129,7 +143,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         switch msg.String() {
 		case "enter":
 			if m.textInput.Focused(){
-				m.data[m.table.Cursor()][m.selectedCol] = m.textInput.Value()
+				
+				id, err := strconv.Atoi(m.data[m.table.Cursor()][7])
+				if err != nil {
+					log.Fatal(err)
+				}
+				updateTable(id, m.selectedCol, m.textInput.Value(), m.db)
+				m.data = fetchData(m.db)
+				m.updatePointer()
 				m.textInput.SetValue("")
 				m.textInput.Blur()
 				m.table.Focus()
