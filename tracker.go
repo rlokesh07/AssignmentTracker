@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"os"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -42,6 +43,7 @@ func fetchData(db *sql.DB) []table.Row {
     }
 	var tableRows []table.Row
 
+	// scan rows into table.Row array
 	for sqlRows.Next() {
       var class, name, duedate, priority, location, estimatedTime, realTime, id string
 
@@ -77,13 +79,13 @@ func initialModel(db *sql.DB) *model {
 
 	tableRows := fetchData(db)
 
-	// scan rows in
     t := table.New(
         table.WithColumns(columns),
         table.WithRows(tableRows),
         table.WithHeight(29),
     )
 	t.Focus()
+	// set the styles
 	s := table.DefaultStyles()
 	s.Header = s.Header.
 		BorderStyle(lipgloss.NormalBorder()).
@@ -111,6 +113,7 @@ func (m *model) Init() tea.Cmd {
 }
 
 func (m *model) updatePointer() {
+	// function to add > to whatever field the cursor is currently on
 	displayRows := make([]table.Row, len(m.data))
 	for i, row := range(m.data){
 		displayRows[i] = make([]string, len(row))
@@ -126,7 +129,7 @@ func (m *model) updatePointer() {
 }
 
 func updateTable(id, col int, newVal string, db *sql.DB) {
-		
+	// uses this dictionary of the sql col names for the fields and uses a template to update		
 	cols := []string {"class", "name", "duedate", "priority", "location", "estimatedtime", "actualtime", "id"}
 	query := fmt.Sprintf("UPDATE assignments SET %s = '%s' WHERE id = %d;", cols[col], newVal, id)
  	_, err := db.Exec(query)
@@ -136,7 +139,7 @@ func updateTable(id, col int, newVal string, db *sql.DB) {
 }
 
 func (m *model) addRow() {
-
+	// add new row with sample data points
 	_, err := m.db.Exec("INSERT INTO assignments (class, name, duedate, priority, location, estimatedtime, actualtime) VALUES ('class', 'name', 'due date', 'low', 'location', 0, 0)")
 	if err != nil {
       log.Printf("Update failed: %v", err)
@@ -173,6 +176,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textInput.Blur()
 				m.table.Focus()
 			}
+		// vim like motions
 		case "j":
 			if m.table.Focused() {
 				m.table.MoveDown(1)
@@ -207,17 +211,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 func (m *model) sortByDueDate() {                                                                                                                                                  
       sort.Slice(m.data, func(i, j int) bool {                                                                                                                                       
-          // Due Date is column index 2                                                                                                                                              
+		  // sorting algo to get assignments due as soon as possible
           dateI := m.data[i][2]                                                                                                                                                      
           dateJ := m.data[j][2]                                                                                                                                                      
                                                                                                                                                                                      
-          // Parse dates (format: "01/15/2026")                                                                                                                                      
           layout := "01/02/2006"                                                                                                                                                     
           timeI, errI := time.Parse(layout, dateI)                                                                                                                                   
           timeJ, errJ := time.Parse(layout, dateJ)                                                                                                                                   
                                                                                                                                                                                      
-          // Handle empty or invalid dates - put them at the end                                                                                                                     
-          if errI != nil {                                                                                                                                                           
+          // Handle empty or invalid dates
+		  if errI != nil {                                                                                                                                                           
               return false                                                                                                                                                           
           }                                                                                                                                                                          
           if errJ != nil {                                                                                                                                                           
@@ -249,8 +252,9 @@ func (m *model) View() string {
 }
 
 func main() {
-	connStr := "postgresql://postgres.mztcyklvjxbyokhdzehl:R1shi5538!!@aws-1-us-east-1.pooler.supabase.com:5432/postgres"
-    if connStr == "" {
+
+	connStr := os.Getenv("ASSIGNMENT_TRACKER_URL")
+	if connStr == "" {
         log.Fatal("SUPABASE_DB_URL environment variable not set")
     }
 
