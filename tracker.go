@@ -20,7 +20,7 @@ var (
     // Input box style
     inputBoxStyle = lipgloss.NewStyle().
         Border(lipgloss.RoundedBorder()).
-        BorderForeground(lipgloss.Color("#FF79C6")).
+        BorderForeground(lipgloss.Color("97")).
         Padding(1, 2).
         MarginTop(1)
 )
@@ -35,16 +35,13 @@ type model struct {
 	db *sql.DB
 }
 func fetchData(db *sql.DB) []table.Row {
-    fmt.Println("Querying database...")
 	// pull rows from sql supabase db
-    sqlRows, err := db.Query("SELECT * FROM assignments ORDER BY duedate")
-    fmt.Println("Query completed!")
+    sqlRows, err := db.Query("SELECT class, name, duedate, priority, location, estimatedtime, actualtime, id FROM assignments ORDER BY duedate")
     if err != nil {
         log.Fatal(err)
     }
 	var tableRows []table.Row
 
-	fmt.Println("Scanning rows...")
 	for sqlRows.Next() {
       var class, name, duedate, priority, location, estimatedTime, realTime, id string
 
@@ -54,10 +51,8 @@ func fetchData(db *sql.DB) []table.Row {
       }
 
       tableRows = append(tableRows, table.Row{class, name, duedate, priority, location, estimatedTime, realTime, id})
-	  fmt.Printf("Scanned row: %v\n", tableRows[len(tableRows)-1])
 	}
 
-	fmt.Printf("Total rows scanned: %d\n", len(tableRows))
 	if err = sqlRows.Err(); err != nil {
       log.Fatal(err)
   	}
@@ -69,10 +64,9 @@ func initialModel(db *sql.DB) *model {
 	ti.Placeholder = "type here"
 	ti.CharLimit = 20
 	ti.Width = 30
-	ti.Focus()
     columns := []table.Column{
-        {Title: "Class", Width: 20},
-        {Title: "Name", Width: 10},
+        {Title: "Class", Width: 10},
+        {Title: "Name", Width: 20},
         {Title: "Due Date", Width: 15},
         {Title: "Priority", Width: 15},
         {Title: "Location", Width: 15},
@@ -82,7 +76,6 @@ func initialModel(db *sql.DB) *model {
     }
 
 	tableRows := fetchData(db)
-    fmt.Println("Creating table...")
 
 	// scan rows in
     t := table.New(
@@ -90,7 +83,18 @@ func initialModel(db *sql.DB) *model {
         table.WithRows(tableRows),
         table.WithHeight(29),
     )
-
+	t.Focus()
+	s := table.DefaultStyles()
+	s.Header = s.Header.
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		BorderBottom(true).
+		Bold(false)
+	s.Selected = s.Selected.
+		Foreground(lipgloss.Color("229")).
+		Background(lipgloss.Color("97")).
+		Bold(false)
+	t.SetStyles(s)
 
     return &model{
 		textInput: ti,
@@ -123,7 +127,7 @@ func (m *model) updatePointer() {
 
 func updateTable(id, col int, newVal string, db *sql.DB) {
 		
-	cols := []string {"class", "name", "duedate", "priority", "estimatedtime", "actualtime", "location", "id"}
+	cols := []string {"class", "name", "duedate", "priority", "location", "estimatedtime", "actualtime", "id"}
 	query := fmt.Sprintf("UPDATE assignments SET %s = '%s' WHERE id = %d;", cols[col], newVal, id)
  	_, err := db.Exec(query)
   	if err != nil {
@@ -133,12 +137,12 @@ func updateTable(id, col int, newVal string, db *sql.DB) {
 
 func (m *model) addRow() {
 
-	newRow := table.Row{"class", "name", "due date", "low", "location", "est", "actual"}
-	m.data = append(m.data, newRow)
-	m.table.SetRows(m.data)
-
-	
+	_, err := m.db.Exec("INSERT INTO assignments (class, name, duedate, priority, location, estimatedtime, actualtime) VALUES ('class', 'name', 'due date', 'low', 'location', 0, 0)")
+	if err != nil {
+      log.Printf("Update failed: %v", err)
+  	}
 }
+
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
     switch msg := msg.(type) {
@@ -189,6 +193,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "A":
 			if m.table.Focused(){
 				m.addRow()
+				m.data = fetchData(m.db)
+				m.updatePointer()
 			}
 		}
 
